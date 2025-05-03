@@ -7,9 +7,12 @@ import (
 )
 
 type Process struct {
-	URL        *url.URL
-	Alive      bool
-	ErrorCount int32
+	URL               *url.URL
+	Alive             bool
+	ErrorCount        int32
+	Weight            int
+	Current           int
+	ActiveConnections int32
 }
 
 func (p *Process) IsAlive() bool {
@@ -22,4 +25,20 @@ func (p *Process) SetAlive(alive bool) {
 		val = 1
 	}
 	atomic.StoreUint32((*uint32)(unsafe.Pointer(&p.Alive)), val)
+}
+
+func (p *Process) ResetCurrentWeight() {
+	p.Current = p.Weight
+}
+
+func (p *Process) IncrementConnections() {
+	atomic.AddInt32(&p.ActiveConnections, 1)
+}
+
+func (p *Process) DecrementConnections() {
+	atomic.AddInt32(&p.ActiveConnections, -1)
+}
+
+func (p *Process) GetActiveConnections() int32 {
+	return atomic.LoadInt32(&p.ActiveConnections)
 }
