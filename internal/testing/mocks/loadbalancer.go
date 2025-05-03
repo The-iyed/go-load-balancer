@@ -14,7 +14,6 @@ import (
 	"github.com/The-iyed/go-load-balancer/internal/testing/testutils"
 )
 
-// LoadBalancerTestClient provides a client for testing the load balancer
 type LoadBalancerTestClient struct {
 	client         *http.Client
 	ServerURL      string
@@ -25,9 +24,7 @@ type LoadBalancerTestClient struct {
 	mu             sync.Mutex
 }
 
-// NewLoadBalancerTestClient creates a new test client for the load balancer
 func NewLoadBalancerTestClient() *LoadBalancerTestClient {
-	// Create an HTTP client with a shorter timeout
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
@@ -46,39 +43,32 @@ func NewLoadBalancerTestClient() *LoadBalancerTestClient {
 	}
 }
 
-// Initialize sets up the load balancer with the provided configuration
 func (c *LoadBalancerTestClient) Initialize(config string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Clean up any existing resources
 	if c.initialized {
 		c.Close()
 	}
 
-	// Create a temporary config file
 	configPath, err := testutils.CreateTempConfig(config)
 	if err != nil {
 		return fmt.Errorf("failed to create config file: %v", err)
 	}
 	c.ConfigFilePath = configPath
 
-	// Parse the configuration
 	cfg, err := balancer.ParseConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %v", err)
 	}
 
-	// Create the load balancer
 	c.LB = balancer.CreateLoadBalancer(cfg.Method, cfg.Backends, cfg.Persistence)
 
-	// Set up HTTP server
 	c.httpServer = &http.Server{
-		Addr:    ":0", // Let the OS assign a free port
+		Addr:    ":0",
 		Handler: http.HandlerFunc(c.LB.ProxyRequest),
 	}
 
-	// Start the server
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		return fmt.Errorf("failed to create listener: %v", err)
@@ -96,7 +86,6 @@ func (c *LoadBalancerTestClient) Initialize(config string) error {
 	return nil
 }
 
-// InitializeWithBackends sets up the load balancer with mock backends
 func (c *LoadBalancerTestClient) InitializeWithBackends(
 	algorithm balancer.LoadBalancerAlgorithm,
 	persistence balancer.PersistenceMethod,
@@ -111,7 +100,6 @@ func (c *LoadBalancerTestClient) InitializeWithBackends(
 	return c.Initialize(config)
 }
 
-// Close cleans up resources used by the test client
 func (c *LoadBalancerTestClient) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -123,14 +111,12 @@ func (c *LoadBalancerTestClient) Close() {
 	}
 
 	if c.ConfigFilePath != "" {
-		// Delete the temporary config file
 		_ = os.Remove(c.ConfigFilePath)
 	}
 
 	c.initialized = false
 }
 
-// SendRequest sends an HTTP request to the load balancer
 func (c *LoadBalancerTestClient) SendRequest(path string, cookies []*http.Cookie) (*http.Response, error) {
 	if !c.initialized {
 		return nil, fmt.Errorf("client not initialized")
@@ -142,7 +128,6 @@ func (c *LoadBalancerTestClient) SendRequest(path string, cookies []*http.Cookie
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 
-	// Add cookies if provided
 	for _, cookie := range cookies {
 		req.AddCookie(cookie)
 	}
@@ -150,7 +135,6 @@ func (c *LoadBalancerTestClient) SendRequest(path string, cookies []*http.Cookie
 	return c.client.Do(req)
 }
 
-// SendRequests sends multiple HTTP requests to the load balancer
 func (c *LoadBalancerTestClient) SendRequests(count int, path string, cookies []*http.Cookie) ([]*http.Response, error) {
 	responses := make([]*http.Response, count)
 
@@ -165,7 +149,6 @@ func (c *LoadBalancerTestClient) SendRequests(count int, path string, cookies []
 	return responses, nil
 }
 
-// SendConcurrentRequests sends multiple HTTP requests concurrently
 func (c *LoadBalancerTestClient) SendConcurrentRequests(count int, path string, cookies []*http.Cookie) ([]*http.Response, error) {
 	responses := make([]*http.Response, count)
 	var wg sync.WaitGroup

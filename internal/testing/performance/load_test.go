@@ -12,7 +12,6 @@ import (
 	"github.com/The-iyed/go-load-balancer/internal/testing/mocks"
 )
 
-// BenchmarkLoadBalancer measures load balancer performance under various conditions
 func BenchmarkLoadBalancer(b *testing.B) {
 	tests := []struct {
 		name          string
@@ -81,10 +80,8 @@ func BenchmarkLoadBalancer(b *testing.B) {
 
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
-			// Reset the timer for setup
 			b.StopTimer()
 
-			// Create mock backends with the specified delay
 			delays := make([]time.Duration, tt.numBackends)
 			for i := range delays {
 				delays[i] = tt.backendDelay
@@ -92,11 +89,9 @@ func BenchmarkLoadBalancer(b *testing.B) {
 			cluster := mocks.NewBackendCluster(tt.numBackends, delays, nil)
 			defer cluster.Close()
 
-			// Create a load balancer client
 			client := mocks.NewLoadBalancerTestClient()
 			defer client.Close()
 
-			// Initialize with the algorithm and persistence method
 			weights := make([]int, tt.numBackends)
 			for i := range weights {
 				weights[i] = 1
@@ -111,27 +106,21 @@ func BenchmarkLoadBalancer(b *testing.B) {
 				b.Fatalf("Failed to initialize load balancer: %v", err)
 			}
 
-			// Prepare benchmarking
 			totalRequests := tt.concurrency * tt.requestsPerGo
 			b.ResetTimer()
 
-			// Start the timer for the benchmark
 			b.StartTimer()
 
-			// Use a WaitGroup to wait for all goroutines to finish
 			var wg sync.WaitGroup
 			wg.Add(tt.concurrency)
 
-			// Track response times
 			responseTimes := make([]time.Duration, totalRequests)
 			var responseTimeMutex sync.Mutex
 
-			// Launch concurrent goroutines to simulate load
 			for i := 0; i < tt.concurrency; i++ {
 				go func(routineID int) {
 					defer wg.Done()
 
-					// Get a cookie for persistence tests
 					var cookie *http.Cookie
 					if tt.persistence == balancer.CookiePersistence {
 						resp, err := client.SendRequest("/", nil)
@@ -152,7 +141,6 @@ func BenchmarkLoadBalancer(b *testing.B) {
 						cookies = []*http.Cookie{cookie}
 					}
 
-					// Send requests
 					for j := 0; j < tt.requestsPerGo; j++ {
 						requestID := routineID*tt.requestsPerGo + j
 						start := time.Now()
@@ -166,7 +154,6 @@ func BenchmarkLoadBalancer(b *testing.B) {
 							continue
 						}
 
-						// Record response time
 						responseTimeMutex.Lock()
 						responseTimes[requestID] = duration
 						responseTimeMutex.Unlock()
@@ -174,13 +161,10 @@ func BenchmarkLoadBalancer(b *testing.B) {
 				}(i)
 			}
 
-			// Wait for all goroutines to finish
 			wg.Wait()
 
-			// Stop the timer to exclude result processing
 			b.StopTimer()
 
-			// Calculate statistics
 			var totalTime time.Duration
 			var minTime = time.Hour
 			var maxTime time.Duration
@@ -205,7 +189,6 @@ func BenchmarkLoadBalancer(b *testing.B) {
 
 			avgTime := totalTime / time.Duration(validResponses)
 
-			// Calculate standard deviation
 			var variance float64
 			for _, duration := range responseTimes {
 				if duration > 0 {
@@ -216,17 +199,14 @@ func BenchmarkLoadBalancer(b *testing.B) {
 			variance /= float64(validResponses)
 			stdDev := time.Duration(math.Sqrt(variance))
 
-			// Calculate requests per second
 			rps := float64(validResponses) / totalTime.Seconds()
 
-			// Report results
 			b.ReportMetric(rps, "req/s")
 			b.ReportMetric(float64(avgTime.Microseconds()), "avg_µs")
 			b.ReportMetric(float64(stdDev.Microseconds()), "stddev_µs")
 			b.ReportMetric(float64(minTime.Microseconds()), "min_µs")
 			b.ReportMetric(float64(maxTime.Microseconds()), "max_µs")
 
-			// Display backend request distribution
 			counts := cluster.GetBackendRequestCounts()
 			distribution := cluster.RequestDistribution()
 
@@ -238,22 +218,18 @@ func BenchmarkLoadBalancer(b *testing.B) {
 	}
 }
 
-// BenchmarkHighLoad tests the load balancer under very high concurrency
 func BenchmarkHighLoad(b *testing.B) {
 	if testing.Short() {
 		b.Skip("Skipping high load test in short mode")
 	}
 
-	// Create mock backends
 	numBackends := 5
 	cluster := mocks.NewBackendCluster(numBackends, nil, nil)
 	defer cluster.Close()
 
-	// Create a load balancer client
 	client := mocks.NewLoadBalancerTestClient()
 	defer client.Close()
 
-	// Initialize with weighted round robin
 	weights := make([]int, numBackends)
 	for i := range weights {
 		weights[i] = 1
@@ -268,18 +244,15 @@ func BenchmarkHighLoad(b *testing.B) {
 		b.Fatalf("Failed to initialize load balancer: %v", err)
 	}
 
-	// Benchmark with increasing concurrency levels
 	concurrencyLevels := []int{10, 50, 100, 200, 500}
 	requestsPerGoroutine := 20
 
 	for _, concurrency := range concurrencyLevels {
 		name := fmt.Sprintf("Concurrency-%d", concurrency)
 		b.Run(name, func(b *testing.B) {
-			// Reset the timer for setup
 			b.StopTimer()
 			cluster.ResetStats()
 
-			// Prepare benchmarking
 			totalRequests := concurrency * requestsPerGoroutine
 			responseTimes := make([]time.Duration, totalRequests)
 			var responseTimeMutex sync.Mutex
@@ -287,11 +260,9 @@ func BenchmarkHighLoad(b *testing.B) {
 			b.ResetTimer()
 			b.StartTimer()
 
-			// Use a WaitGroup to wait for all goroutines to finish
 			var wg sync.WaitGroup
 			wg.Add(concurrency)
 
-			// Launch concurrent goroutines to simulate load
 			for i := 0; i < concurrency; i++ {
 				go func(routineID int) {
 					defer wg.Done()
@@ -309,7 +280,6 @@ func BenchmarkHighLoad(b *testing.B) {
 							continue
 						}
 
-						// Record response time
 						responseTimeMutex.Lock()
 						responseTimes[requestID] = duration
 						responseTimeMutex.Unlock()
@@ -317,13 +287,10 @@ func BenchmarkHighLoad(b *testing.B) {
 				}(i)
 			}
 
-			// Wait for all goroutines to finish
 			wg.Wait()
 
-			// Stop the timer to exclude result processing
 			b.StopTimer()
 
-			// Calculate statistics
 			var totalTime time.Duration
 			var validResponses int
 
@@ -341,11 +308,9 @@ func BenchmarkHighLoad(b *testing.B) {
 			avgTime := totalTime / time.Duration(validResponses)
 			rps := float64(validResponses) / totalTime.Seconds()
 
-			// Report results
 			b.ReportMetric(rps, "req/s")
 			b.ReportMetric(float64(avgTime.Microseconds()), "avg_µs")
 
-			// Display success rate
 			successRate := float64(validResponses) / float64(totalRequests) * 100
 			b.ReportMetric(successRate, "success_%")
 		})
