@@ -14,15 +14,12 @@ import (
 	"github.com/The-iyed/go-load-balancer/internal/balancer"
 )
 
-// GetProjectRoot returns the absolute path to the project root directory
 func GetProjectRoot() string {
 	_, filename, _, _ := runtime.Caller(0)
 	dir := filepath.Dir(filename)
 	return filepath.Join(dir, "..", "..", "..")
 }
 
-// CreateTempConfig creates a temporary config file with the given content
-// and returns the path to the file. The caller is responsible for removing the file.
 func CreateTempConfig(content string) (string, error) {
 	tmpFile, err := os.CreateTemp("", "loadbalancer-test-*.conf")
 	if err != nil {
@@ -37,8 +34,6 @@ func CreateTempConfig(content string) (string, error) {
 	return tmpFile.Name(), nil
 }
 
-// CreateTestBackends creates a specified number of test HTTP servers
-// and returns their URLs and a cleanup function.
 func CreateTestBackends(count int) ([]string, func(), error) {
 	var backends []string
 	var servers []*httptest.Server
@@ -62,8 +57,6 @@ func CreateTestBackends(count int) ([]string, func(), error) {
 	return backends, cleanup, nil
 }
 
-// CreateLoadBalancerConfig creates a load balancer configuration with the specified
-// algorithm, persistence method, and backends.
 func CreateLoadBalancerConfig(algorithm balancer.LoadBalancerAlgorithm,
 	persistence balancer.PersistenceMethod, backends []string, weights []int) (string, error) {
 
@@ -94,7 +87,6 @@ func CreateLoadBalancerConfig(algorithm balancer.LoadBalancerAlgorithm,
 	return sb.String(), nil
 }
 
-// AssertEventually repeatedly checks the given condition until it returns true or the timeout is reached.
 func AssertEventually(t *testing.T, condition func() bool, timeout time.Duration, message string) {
 	t.Helper()
 
@@ -109,7 +101,6 @@ func AssertEventually(t *testing.T, condition func() bool, timeout time.Duration
 	t.Fatalf("Condition not met within %v: %s", timeout, message)
 }
 
-// CookieFromResponse extracts a cookie with the given name from an HTTP response.
 func CookieFromResponse(resp *http.Response, name string) (*http.Cookie, bool) {
 	for _, cookie := range resp.Cookies() {
 		if cookie.Name == name {
@@ -119,7 +110,6 @@ func CookieFromResponse(resp *http.Response, name string) (*http.Cookie, bool) {
 	return nil, false
 }
 
-// ParseBackendResponse parses the backend ID from a response.
 func ParseBackendResponse(resp *http.Response) (int, error) {
 	backendID := resp.Header.Get("X-Backend-ID")
 	if backendID == "" {
