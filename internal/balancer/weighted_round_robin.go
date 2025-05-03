@@ -51,7 +51,7 @@ func NewLoadBalancer(configs []BackendConfig) *WeightedRoundRobinBalancer {
 	}
 }
 
-func (lb *WeightedRoundRobinBalancer) GetNextInstance() *Process {
+func (lb *WeightedRoundRobinBalancer) GetNextInstance(r *http.Request) *Process {
 	if len(lb.ProcessPack) == 0 {
 		return nil
 	}
@@ -85,7 +85,7 @@ func (lb *WeightedRoundRobinBalancer) GetNextInstance() *Process {
 }
 
 func (lb *WeightedRoundRobinBalancer) ProxyRequest(w http.ResponseWriter, r *http.Request) {
-	target := lb.GetNextInstance()
+	target := lb.GetNextInstance(r)
 	if target == nil {
 		http.Error(w, "No healthy backends available", http.StatusServiceUnavailable)
 		return

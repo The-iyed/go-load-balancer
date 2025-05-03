@@ -45,7 +45,7 @@ func NewLeastConnectionsBalancer(configs []BackendConfig) *LeastConnectionsBalan
 	}
 }
 
-func (lb *LeastConnectionsBalancer) GetNextInstance() *Process {
+func (lb *LeastConnectionsBalancer) GetNextInstance(r *http.Request) *Process {
 	var minConnections int32 = math.MaxInt32
 	var selectedIndex = -1
 
@@ -74,7 +74,7 @@ func (lb *LeastConnectionsBalancer) GetNextInstance() *Process {
 }
 
 func (lb *LeastConnectionsBalancer) ProxyRequest(w http.ResponseWriter, r *http.Request) {
-	target := lb.GetNextInstance()
+	target := lb.GetNextInstance(r)
 	if target == nil {
 		http.Error(w, "No healthy backends available", http.StatusServiceUnavailable)
 		return

@@ -17,9 +17,11 @@ import (
 func main() {
 	var configPath string
 	var algorithm string
+	var persistence string
 
 	flag.StringVar(&configPath, "config", "conf/loadbalancer.conf", "accessing configuration file")
 	flag.StringVar(&algorithm, "algorithm", "", "override load balancing algorithm: round-robin, weighted-round-robin, least-connections")
+	flag.StringVar(&persistence, "persistence", "", "override persistence method: none, cookie, ip_hash, consistent_hash")
 	flag.Parse()
 
 	logger.InitLogger()
@@ -35,12 +37,23 @@ func main() {
 
 	var lb balancer.LoadBalancerStrategy
 
+	algoOverride := balancer.LoadBalancerAlgorithm(algorithm)
+	persistenceOverride := balancer.PersistenceMethod(persistence)
+
 	if algorithm != "" {
-		lb = balancer.CreateLoadBalancer(balancer.LoadBalancerAlgorithm(algorithm), config.Backends)
-		logger.Log.Info("Using algorithm from command line", zap.String("algorithm", algorithm))
+		if persistence != "" {
+			lb = balancer.CreateLoadBalancer(algoOverride, config.Backends, persistenceOverride)
+			logger.Log.Info("Using algorithm and persistence from command line", zap.String("algorithm", algorithm), zap.String("persistence", persistence))
+		} else {
+			lb = balancer.CreateLoadBalancer(algoOverride, config.Backends, config.Persistence)
+			logger.Log.Info("Using algorithm from command line, persistence from config", zap.String("algorithm", algorithm), zap.String("persistence", string(config.Persistence)))
+		}
+	} else if persistence != "" {
+		lb = balancer.CreateLoadBalancer(config.Method, config.Backends, persistenceOverride)
+		logger.Log.Info("Using algorithm from config, persistence from command line", zap.String("algorithm", string(config.Method)), zap.String("persistence", persistence))
 	} else {
-		lb = balancer.CreateLoadBalancer(config.Method, config.Backends)
-		logger.Log.Info("Using algorithm from config file", zap.String("algorithm", string(config.Method)))
+		lb = balancer.CreateLoadBalancer(config.Method, config.Backends, config.Persistence)
+		logger.Log.Info("Using algorithm and persistence from config", zap.String("algorithm", string(config.Method)), zap.String("persistence", string(config.Persistence)))
 	}
 
 	server := &http.Server{

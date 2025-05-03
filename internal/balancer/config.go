@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	Backends []BackendConfig
-	Method   LoadBalancerAlgorithm
+	Backends    []BackendConfig
+	Method      LoadBalancerAlgorithm
+	Persistence PersistenceMethod
 }
 
 type BackendConfig struct {
@@ -25,7 +26,8 @@ func ParseConfig(filePath string) (*Config, error) {
 	defer file.Close()
 
 	config := &Config{
-		Method: WeightedRoundRobin,
+		Method:      WeightedRoundRobin,
+		Persistence: NoPersistence,
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -79,6 +81,29 @@ func ParseConfig(filePath string) (*Config, error) {
 				config.Method = WeightedRoundRobin
 			default:
 				config.Method = WeightedRoundRobin
+			}
+		} else if strings.HasPrefix(line, "persistence") {
+			parts := strings.Fields(line)
+			if len(parts) < 2 {
+				continue
+			}
+
+			persistence := parts[1]
+			if strings.HasSuffix(persistence, ";") {
+				persistence = persistence[:len(persistence)-1]
+			}
+
+			switch persistence {
+			case "cookie":
+				config.Persistence = CookiePersistence
+			case "ip_hash":
+				config.Persistence = IPHashPersistence
+			case "consistent_hash":
+				config.Persistence = ConsistentHashPersistence
+			case "none":
+				config.Persistence = NoPersistence
+			default:
+				config.Persistence = NoPersistence
 			}
 		}
 	}
