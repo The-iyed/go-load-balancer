@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// MockBackend represents a mock backend server for testing
 type MockBackend struct {
 	Server          *httptest.Server
 	ID              int
@@ -20,7 +19,6 @@ type MockBackend struct {
 	LastRequestTime time.Time
 }
 
-// NewMockBackend creates a new mock backend server for testing
 func NewMockBackend(id int, responseDelay time.Duration, failureRate float64) *MockBackend {
 	mb := &MockBackend{
 		ID:            id,
@@ -32,14 +30,22 @@ func NewMockBackend(id int, responseDelay time.Duration, failureRate float64) *M
 		mb.RequestCount.Add(1)
 		mb.LastRequestTime = time.Now()
 
-		// Simulate processing delay
 		if mb.ResponseDelay > 0 {
 			time.Sleep(mb.ResponseDelay)
 		}
 
-		// Simulate failure based on failure rate
 		if mb.FailureRate > 0 && float64(mb.FailureCount.Load())/float64(mb.RequestCount.Load()) < mb.FailureRate {
 			mb.FailureCount.Add(1)
+			// For high failure rates (over 80%), simulate a complete connection failure
+			// This will trigger the error handler in the load balancer
+			if mb.FailureRate >= 0.8 {
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err == nil {
+					conn.Close() // Forcibly close the connection
+					return
+				}
+			}
+			// Fall back to HTTP 500 if hijacking fails or for lower failure rates
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprintf(w, "Backend %d error", mb.ID)
 			return
@@ -55,29 +61,24 @@ func NewMockBackend(id int, responseDelay time.Duration, failureRate float64) *M
 	return mb
 }
 
-// URL returns the URL of the mock backend
 func (mb *MockBackend) URL() string {
 	return mb.Server.URL
 }
 
-// Close shuts down the mock backend server
 func (mb *MockBackend) Close() {
 	mb.Server.Close()
 }
 
-// ResetStats resets the statistics of the mock backend
 func (mb *MockBackend) ResetStats() {
 	mb.RequestCount.Store(0)
 	mb.FailureCount.Store(0)
 	mb.SuccessCount.Store(0)
 }
 
-// BackendCluster represents a group of mock backends
 type BackendCluster struct {
 	Backends []*MockBackend
 }
 
-// NewBackendCluster creates a new cluster of mock backends
 func NewBackendCluster(count int, responseDelays []time.Duration, failureRates []float64) *BackendCluster {
 	cluster := &BackendCluster{
 		Backends: make([]*MockBackend, count),
@@ -100,7 +101,6 @@ func NewBackendCluster(count int, responseDelays []time.Duration, failureRates [
 	return cluster
 }
 
-// URLs returns the URLs of all backends in the cluster
 func (bc *BackendCluster) URLs() []string {
 	urls := make([]string, len(bc.Backends))
 	for i, backend := range bc.Backends {
@@ -109,21 +109,18 @@ func (bc *BackendCluster) URLs() []string {
 	return urls
 }
 
-// Close shuts down all backends in the cluster
 func (bc *BackendCluster) Close() {
 	for _, backend := range bc.Backends {
 		backend.Close()
 	}
 }
 
-// ResetStats resets the statistics of all backends in the cluster
 func (bc *BackendCluster) ResetStats() {
 	for _, backend := range bc.Backends {
 		backend.ResetStats()
 	}
 }
 
-// TotalRequests returns the total number of requests processed by all backends
 func (bc *BackendCluster) TotalRequests() int {
 	total := 0
 	for _, backend := range bc.Backends {
@@ -132,7 +129,6 @@ func (bc *BackendCluster) TotalRequests() int {
 	return total
 }
 
-// GetBackendRequestCounts returns the request counts for each backend
 func (bc *BackendCluster) GetBackendRequestCounts() []int {
 	counts := make([]int, len(bc.Backends))
 	for i, backend := range bc.Backends {
@@ -141,7 +137,6 @@ func (bc *BackendCluster) GetBackendRequestCounts() []int {
 	return counts
 }
 
-// RequestDistribution returns the percentage distribution of requests across backends
 func (bc *BackendCluster) RequestDistribution() []float64 {
 	total := bc.TotalRequests()
 	if total == 0 {
