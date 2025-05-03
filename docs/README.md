@@ -15,6 +15,7 @@ A high-performance HTTP load balancer implemented in Go with support for multipl
   - Cookie-based persistence
   - IP hash persistence
   - Consistent hashing
+- WebSocket support with seamless proxying and connection management
 - Nginx-style configuration syntax with algorithm selection
 - Health checking with automatic backend recovery
 - Docker support for easy deployment
@@ -327,4 +328,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Documentation
+
+- [Configuration Guide](configuration.md) - Detailed configuration options and syntax
+- [Load Balancing Algorithms](algorithms.md) - How each algorithm works and when to use them
+- [Session Persistence](persistence.md) - Understanding session persistence methods
+- [WebSocket Support](websockets.md) - Using WebSockets with the load balancer
+- [Health Checking](health_checking.md) - How the load balancer detects and handles backend failures
+- [Docker Deployment](docker.md) - Deploying with Docker and Docker Compose 
