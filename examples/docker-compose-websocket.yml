@@ -1,0 +1,66 @@
+version: '3'
+
+services:
+  # Load balancer service
+  loadbalancer:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./websocket_configurations.conf:/app/conf/loadbalancer.conf
+    depends_on:
+      - backend1
+      - backend2
+      - backend3
+    networks:
+      - websocket-network
+
+  # Backend WebSocket servers
+  backend1:
+    build:
+      context: ./websocket_server
+    environment:
+      - ID=server1
+      - ADDR=:8001
+    expose:
+      - "8001"
+    networks:
+      - websocket-network
+
+  backend2:
+    build:
+      context: ./websocket_server
+    environment:
+      - ID=server2
+      - ADDR=:8001
+    expose:
+      - "8001"
+    networks:
+      - websocket-network
+
+  backend3:
+    build:
+      context: ./websocket_server
+    environment:
+      - ID=server3
+      - ADDR=:8001
+    expose:
+      - "8001"
+    networks:
+      - websocket-network
+
+  # Serve static client for testing
+  client:
+    image: nginx:alpine
+    volumes:
+      - ./websocket_client:/usr/share/nginx/html
+    ports:
+      - "8090:80"
+    networks:
+      - websocket-network
+
+networks:
+  websocket-network:
+    driver: bridge 

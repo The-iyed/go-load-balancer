@@ -1,142 +1,213 @@
-# WebSocket Support
+# WebSocket Support in Go Load Balancer
 
-The Go Load Balancer includes comprehensive support for WebSocket connections, enabling real-time communication applications to work seamlessly with the load balancer.
+This document covers how to configure and use WebSocket support in the Go Load Balancer.
 
-## Features
+## Overview
 
-- Transparent proxying of WebSocket connections
-- Persistence of WebSocket connections to backend servers
-- Automatic protocol upgrade handling
-- Connection health monitoring with ping/pong mechanism
-- Support for both ws:// and wss:// (secure WebSocket) protocols
-- Graceful error handling and backend failover
-
-## How WebSocket Load Balancing Works
-
-When a client attempts to establish a WebSocket connection through the load balancer:
-
-1. The load balancer detects the WebSocket upgrade request based on HTTP headers
-2. A backend server is selected using the configured load balancing algorithm
-3. The load balancer upgrades the client connection to WebSocket
-4. The load balancer establishes a WebSocket connection to the selected backend
-5. Messages are bidirectionally proxied between the client and backend
-6. Periodic ping frames monitor the health of both connections
-7. If a backend fails, connections are cleaned up and future requests route to healthy backends
+The Go Load Balancer provides full WebSocket support, allowing you to distribute WebSocket connections across multiple backend servers while maintaining session persistence. WebSocket connections can be load balanced using the same methods available for HTTP traffic, with additional configuration options specific to WebSocket needs.
 
 ## Configuration
 
-WebSocket support is automatically enabled in all load balancing algorithms. No additional configuration is required to enable WebSocket support.
+### Basic WebSocket Configuration
 
-When using session persistence with WebSockets:
+To configure the load balancer for WebSocket traffic, use the following configuration format:
 
-- Cookie-based persistence uses cookies in the initial HTTP handshake
-- IP-based persistence keeps connections from the same client IP routed to the same backend
-- Consistent hashing ensures similar WebSocket paths route to the same backend
-
-## Scaling Considerations
-
-The load balancer is designed to efficiently handle WebSocket connections at scale:
-
-- Connection tracking uses minimal memory per connection
-- Goroutines that handle message proxying are lightweight
-- Periodic health checks prevent resource leaks from disconnected clients
-- Connection idle timeout prevents holding resources indefinitely
-
-## Example WebSocket Client
-
-Here's a simple example of a JavaScript WebSocket client connecting through the load balancer:
-
-```javascript
-// Connect to load balancer
-const socket = new WebSocket('ws://loadbalancer:8080/socket');
-
-// Set up event handlers
-socket.onopen = function(e) {
-  console.log('Connection established');
-  socket.send('Hello from client!');
-};
-
-socket.onmessage = function(event) {
-  console.log(`Data received: ${event.data}`);
-};
-
-socket.onclose = function(event) {
-  if (event.wasClean) {
-    console.log(`Connection closed cleanly, code=${event.code} reason=${event.reason}`);
-  } else {
-    console.log('Connection died');
-  }
-};
-
-socket.onerror = function(error) {
-  console.log(`Error: ${error.message}`);
-};
-```
-
-## Example Backend WebSocket Server (Go)
-
-```go
-package main
-
-import (
-	"log"
-	"net/http"
-
-	"github.com/gorilla/websocket"
-)
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins in this example
-	},
+```conf
+upstream backend {
+    method weighted_round_robin;  # Choose your preferred balancing method
+    persistence ip_hash;          # Session persistence is important for WebSockets
+    
+    server http://backend1:8001 weight=1;
+    server http://backend2:8001 weight=1;
+    server http://backend3:8001 weight=1;
 }
 
-func handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println("Upgrade error:", err)
-		return
-	}
-	defer conn.Close()
-
-	for {
-		messageType, p, err := conn.ReadMessage()
-		if err != nil {
-			log.Println("Read error:", err)
-			return
-		}
-		log.Printf("Received message: %s", p)
-
-		// Echo the message back
-		if err := conn.WriteMessage(messageType, p); err != nil {
-			log.Println("Write error:", err)
-			return
-		}
-	}
-}
-
-func main() {
-	http.HandleFunc("/socket", handleWebSocket)
-	log.Fatal(http.ListenAndServe(":8000", nil))
+server {
+    listen 8080;
+    server_name localhost;
+    
+    location / {
+        proxy_pass backend;
+        
+        # Required WebSocket headers
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
 }
 ```
 
-## Health Checking for WebSocket Backends
+### WebSocket Headers
 
-The load balancer monitors WebSocket connection health through:
+For WebSocket connections to work properly, the load balancer automatically adds the following headers when it detects a WebSocket upgrade request:
 
-1. Connection establishment failures
-2. WebSocket protocol errors
-3. Ping/pong frame timeouts
-4. Unexpected connection closures
+- `Upgrade: websocket`
+- `Connection: upgrade`
+- `Sec-WebSocket-Version: 13`
+- `Sec-WebSocket-Key: [base64-encoded key]`
 
-When a backend fails health checks, it is marked as unhealthy and connections are temporarily routed to other backends until the failed backend recovers.
+These headers facilitate the WebSocket protocol handshake between the client and backend servers.
 
-## Performance Considerations
+## Session Persistence for WebSockets
 
-- The load balancer can handle thousands of concurrent WebSocket connections
-- Memory usage scales linearly with the number of active connections
-- For very high connection counts (10,000+), consider horizontal scaling with multiple load balancer instances
-- Configure appropriate timeouts to prevent resource exhaustion from idle connections 
+WebSocket connections benefit significantly from session persistence. The load balancer supports several persistence methods that are particularly useful for WebSocket applications:
+
+### IP Hash Persistence
+
+```conf
+persistence ip_hash;
+```
+
+IP-based persistence ensures that connections from the same client IP address are consistently routed to the same backend server. This is ideal for WebSockets as it maintains connection state across multiple WebSocket connections from the same client.
+
+### Cookie-based Persistence
+
+```conf
+persistence cookie;
+```
+
+Cookie-based persistence uses HTTP cookies to track which backend server should handle each client. This works well for browser-based WebSocket clients and provides stickiness even when a client's IP address changes.
+
+### Consistent Hash Persistence
+
+```conf
+persistence consistent_hash;
+```
+
+Consistent hashing uses information from the request path or headers to determine the backend server. This is useful for scaling WebSocket services with path-based routing.
+
+## Load Balancing Methods for WebSockets
+
+While all load balancing methods work with WebSockets, some are more suitable depending on your WebSocket application's characteristics:
+
+### Least Connections
+
+```conf
+method least_connections;
+```
+
+The least connections method is ideal for WebSocket applications where connections remain open for long periods. It ensures that new connections are routed to the backend server with the fewest active connections, helping to distribute load evenly.
+
+### Weighted Round Robin
+
+```conf
+method weighted_round_robin;
+```
+
+Weighted round robin is suitable for WebSocket applications where all connections have similar resource requirements. It distributes connections among backend servers according to their assigned weights.
+
+## WebSocket Timeouts and Keepalive
+
+WebSocket connections typically remain open longer than regular HTTP connections. You may need to adjust timeouts to prevent the load balancer from closing idle WebSocket connections:
+
+```conf
+server {
+    # ... other configuration ...
+    
+    # Extend timeout for WebSocket connections
+    proxy_read_timeout 3600s;  # 1 hour
+    proxy_send_timeout 3600s;  # 1 hour
+    
+    # Enable WebSocket ping/pong keepalive
+    proxy_websocket_keepalive on;
+}
+```
+
+## Handling WebSocket Disconnections
+
+When a backend server disconnects or becomes unavailable, the load balancer will close the corresponding WebSocket connections. Clients should implement reconnection logic with exponential backoff to handle these situations gracefully.
+
+## Scaling WebSocket Applications
+
+For high-volume WebSocket applications:
+
+1. Use multiple backend servers and distribute them across different physical machines
+2. Consider using the least connections balancing method to evenly distribute the connection load
+3. Implement proper session persistence to maintain connection state
+4. Consider containerization with Docker for easy scaling of backend WebSocket servers
+
+## Example Configurations
+
+### Chat Application
+
+```conf
+upstream chat_backend {
+    method least_connections;
+    persistence ip_hash;
+    
+    server http://chat1:8001 weight=1;
+    server http://chat2:8001 weight=1;
+    server http://chat3:8001 weight=1;
+}
+
+server {
+    listen 8080;
+    server_name chat.example.com;
+    
+    location /ws {
+        proxy_pass chat_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+### Game Server
+
+```conf
+upstream game_backend {
+    method weighted_round_robin;
+    persistence cookie;
+    
+    server http://game1:8001 weight=3;  # High-capacity server
+    server http://game2:8001 weight=1;  # Low-capacity server
+}
+
+server {
+    listen 8080;
+    server_name game.example.com;
+    
+    location /game/ws {
+        proxy_pass game_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+## Testing WebSocket Support
+
+To test WebSocket support, you can use the provided example in the `examples/` directory:
+
+```bash
+# Run the WebSocket demo
+./examples/run_websocket_demo.sh
+
+# Or use Docker Compose
+docker-compose -f examples/docker-compose-websocket.yml up --build
+```
+
+The example includes a simple WebSocket client that connects through the load balancer to multiple backend WebSocket servers, demonstrating both load balancing and session persistence.
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Connection Refused**: Ensure backend servers are running and accessible.
+2. **WebSocket Handshake Failed**: Check that the required WebSocket headers are being forwarded.
+3. **Connections Not Persistent**: Verify that session persistence is configured correctly.
+4. **Timeouts**: Adjust proxy timeout settings for long-lived WebSocket connections.
+
+### Debugging
+
+To debug WebSocket issues, enable verbose logging in the load balancer:
+
+```bash
+./load-balancer -conf loadbalancer.conf -v
+```
+
+This will show detailed information about WebSocket upgrade requests and connection handling. 

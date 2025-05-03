@@ -332,9 +332,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Documentation
 
-- [Configuration Guide](configuration.md) - Detailed configuration options and syntax
-- [Load Balancing Algorithms](algorithms.md) - How each algorithm works and when to use them
-- [Session Persistence](persistence.md) - Understanding session persistence methods
-- [WebSocket Support](websockets.md) - Using WebSockets with the load balancer
-- [Health Checking](health_checking.md) - How the load balancer detects and handles backend failures
-- [Docker Deployment](docker.md) - Deploying with Docker and Docker Compose 
+* [Configuration Reference](configuration.md)
+* [Architecture Overview](architecture.md)
+* [Load Balancing Algorithms](algorithms.md)
+* [Session Persistence](persistence.md)
+* [WebSocket Support](websockets.md)
+* [API Reference](api.md)
+* [Performance Benchmarks](benchmarks.md)
+* [Contributing](contributing.md) 
