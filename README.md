@@ -9,7 +9,6 @@
 
 A high-performance HTTP load balancer written in Go with support for multiple load balancing algorithms and Docker integration.
 
-![Load Balancer Diagram](docs/images/load-balancer-diagram.png)
 
 ## Features
 
