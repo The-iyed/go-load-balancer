@@ -80,6 +80,14 @@ func (lb *LeastConnectionsBalancer) ProxyRequest(w http.ResponseWriter, r *http.
 		return
 	}
 
+	if IsWebSocketRequest(r) && lb.SupportsWebSockets() {
+		wsProxy := NewWebSocketProxy(target, func(p *Process) {
+			go lb.reviveLater(p)
+		})
+		wsProxy.ProxyWebSocket(w, r)
+		return
+	}
+
 	target.IncrementConnections()
 
 	proxy := httputil.NewSingleHostReverseProxy(target.URL)
@@ -115,6 +123,10 @@ func (lb *LeastConnectionsBalancer) reviveLater(p *Process) {
 	p.SetAlive(true)
 	atomic.StoreInt32(&p.ErrorCount, 0)
 	logger.Log.Info("Backend revived", zap.String("backend", p.URL.String()))
+}
+
+func (lb *LeastConnectionsBalancer) SupportsWebSockets() bool {
+	return true
 }
 
 type responseWriterInterceptor struct {

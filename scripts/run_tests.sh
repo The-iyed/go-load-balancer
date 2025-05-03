@@ -1,6 +1,6 @@
 
 
-set -e  # Exit on any error
+set -e  
 
 if ! command -v go &> /dev/null; then
     echo "Error: Go is not installed or not in the PATH"

@@ -39,6 +39,7 @@ const (
 type LoadBalancerStrategy interface {
 	GetNextInstance(r *http.Request) *Process
 	ProxyRequest(w http.ResponseWriter, r *http.Request)
+	SupportsWebSockets() bool
 }
 
 // CreateLoadBalancer factory function to create a load balancer based on the algorithm

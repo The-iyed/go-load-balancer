@@ -98,6 +98,14 @@ func (lb *WeightedRoundRobinBalancer) ProxyRequest(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if IsWebSocketRequest(r) && lb.SupportsWebSockets() {
+		wsProxy := NewWebSocketProxy(target, func(p *Process) {
+			go lb.reviveLater(p)
+		})
+		wsProxy.ProxyWebSocket(w, r)
+		return
+	}
+
 	proxy := httputil.NewSingleHostReverseProxy(target.URL)
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
 		logger.Log.Error("Request failed",
@@ -116,6 +124,10 @@ func (lb *WeightedRoundRobinBalancer) ProxyRequest(w http.ResponseWriter, r *htt
 	}
 
 	proxy.ServeHTTP(w, r)
+}
+
+func (lb *WeightedRoundRobinBalancer) SupportsWebSockets() bool {
+	return true
 }
 
 func (lb *WeightedRoundRobinBalancer) reviveLater(p *Process) {

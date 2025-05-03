@@ -152,6 +152,14 @@ func (lb *SessionPersistenceBalancer) ProxyRequest(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if IsWebSocketRequest(r) && lb.SupportsWebSockets() {
+		wsProxy := NewWebSocketProxy(target, func(p *Process) {
+			go lb.reviveLater(p)
+		})
+		wsProxy.ProxyWebSocket(w, r)
+		return
+	}
+
 	if lb.PersistenceMethod == CookiePersistence {
 		index := -1
 		for i, backend := range lb.ProcessPack {
@@ -200,6 +208,10 @@ func (lb *SessionPersistenceBalancer) reviveLater(p *Process) {
 	p.SetAlive(true)
 	atomic.StoreInt32(&p.ErrorCount, 0)
 	logger.Log.Info("Backend revived", zap.String("backend", p.URL.String()))
+}
+
+func (lb *SessionPersistenceBalancer) SupportsWebSockets() bool {
+	return true
 }
 
 type ConsistentHashRing struct {
