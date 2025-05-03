@@ -1,5 +1,9 @@
 # Go Load Balancer
 
+<p align="center">
+  <img src="docs/images/logo.png" alt="Go Load Balancer Logo" width="300">
+</p>
+
 [![Go Report Card](https://goreportcard.com/badge/github.com/The-iyed/go-load-balancer)](https://goreportcard.com/report/github.com/The-iyed/go-load-balancer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 

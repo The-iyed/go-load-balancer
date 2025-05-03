@@ -1,5 +1,9 @@
 # Go Load Balancer
 
+<p align="center">
+  <img src="images/logo.png" alt="Go Load Balancer Logo" width="300">
+</p>
+
 A high-performance HTTP load balancer implemented in Go with support for multiple load balancing algorithms.
 
 ## Features

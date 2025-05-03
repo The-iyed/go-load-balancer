@@ -1,5 +1,9 @@
 # Configuration Guide
 
+<p align="center">
+  <img src="images/logo.png" alt="Go Load Balancer Logo" width="250">
+</p>
+
 This document explains how to configure the Go Load Balancer for various use cases.
 
 ## Configuration File Format

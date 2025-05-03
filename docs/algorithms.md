@@ -1,5 +1,9 @@
 # Load Balancing Algorithms
 
+<p align="center">
+  <img src="images/logo.png" alt="Go Load Balancer Logo" width="250">
+</p>
+
 This document provides detailed information about the load balancing algorithms and session persistence methods implemented in this project.
 
 ## Load Balancing Algorithms
