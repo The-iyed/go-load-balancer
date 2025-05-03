@@ -11,6 +11,7 @@ The load balancer uses a simple configuration file format to define backend serv
 ```
 upstream backend {
     method <METHOD>;
+    persistence <PERSISTENCE>;
     server <URL> weight=<WEIGHT>;
     server <URL> weight=<WEIGHT>;
     ...
@@ -19,6 +20,7 @@ upstream backend {
 
 Where:
 - `<METHOD>` is the load balancing algorithm to use (weighted_round_robin, round_robin, least_conn)
+- `<PERSISTENCE>` is the session persistence method to use (none, cookie, ip_hash, consistent_hash)
 - `<URL>` is the URL of the backend server (e.g., `http://backend1:80`)
 - `<WEIGHT>` is the weight of the server (default: 1)
 
@@ -27,6 +29,7 @@ Where:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `method` | `weighted_round_robin` | The load balancing algorithm to use |
+| `persistence` | `none` | The session persistence method to use |
 | `weight` | 1 | The relative weight of the server for weighted algorithms |
 
 ### Available Methods
@@ -36,6 +39,15 @@ Where:
 | `weighted_round_robin` | Distributes traffic based on server weights |
 | `round_robin` | Simple round-robin distribution (weights are ignored) |
 | `least_conn` | Routes to the server with the fewest active connections |
+
+### Available Persistence Methods
+
+| Persistence Method | Description |
+|-------------|-------------|
+| `none` | No session persistence (default) |
+| `cookie` | Uses cookies to maintain client sessions with the same backend |
+| `ip_hash` | Uses client IP address to determine the backend server |
+| `consistent_hash` | Uses consistent hashing on request path for even distribution |
 
 ## Example Configurations
 
@@ -78,16 +90,45 @@ upstream backend {
 }
 ```
 
-### Weighted Least Connections Configuration
+### Cookie-Based Session Persistence
 
-A configuration for Least Connections that also considers server capacity:
+A configuration using cookies for session persistence:
+
+```
+upstream backend {
+    method weighted_round_robin;
+    persistence cookie;
+    server http://backend1:80 weight=3;
+    server http://backend2:80 weight=2;
+    server http://backend3:80 weight=1;
+}
+```
+
+### IP Hash Persistence
+
+A configuration using client IP hashing for persistence:
 
 ```
 upstream backend {
     method least_conn;
-    server http://backend1:80 weight=4;  # High-capacity server
-    server http://backend2:80 weight=2;  # Medium-capacity server
-    server http://backend3:80 weight=1;  # Low-capacity server
+    persistence ip_hash;
+    server http://backend1:80 weight=1;
+    server http://backend2:80 weight=1;
+    server http://backend3:80 weight=1;
+}
+```
+
+### Consistent Hashing Persistence
+
+A configuration using consistent hashing for persistence:
+
+```
+upstream backend {
+    method weighted_round_robin;
+    persistence consistent_hash;
+    server http://backend1:80 weight=3;
+    server http://backend2:80 weight=2;
+    server http://backend3:80 weight=1;
 }
 ```
 
@@ -98,6 +139,7 @@ When running in Docker, the configuration typically uses the Docker service name
 ```
 upstream backend {
     method weighted_round_robin;
+    persistence cookie;
     server http://backend1:80 weight=3;
     server http://backend2:80 weight=2;
     server http://backend3:80 weight=1;
@@ -115,12 +157,14 @@ Future version example:
 ```
 upstream api {
     method least_conn;
+    persistence ip_hash;
     server http://api1:80 weight=1;
     server http://api2:80 weight=1;
 }
 
 upstream static {
     method weighted_round_robin;
+    persistence consistent_hash;
     server http://static1:80 weight=1;
     server http://static2:80 weight=1;
 }
@@ -149,12 +193,22 @@ To override the method specified in the config file:
 ./load-balancer --algorithm=least-connections
 ```
 
+To override the persistence method:
+
+```bash
+./load-balancer --persistence=cookie
+```
+
 ## Configuration Best Practices
 
 1. **Balance Weight Distribution**: Assign weights that reflect the true capacity ratio of your servers
 2. **Consider Resource Usage**: For Least Connections, make sure your weights align with your server capacity
 3. **Use Health Checks**: The load balancer has passive health checking built-in
-4. **Monitor and Adjust**: Review the distribution and adjust weights or algorithms as needed
+4. **Choose Appropriate Persistence**: Select the right persistence method for your application:
+   - `cookie` for standard web applications
+   - `ip_hash` when cookies cannot be used
+   - `consistent_hash` for distributed systems
+5. **Monitor and Adjust**: Review the distribution and adjust weights or algorithms as needed
 
 ## Troubleshooting
 
@@ -164,6 +218,7 @@ To override the method specified in the config file:
 2. **Uneven Distribution**: For Weighted Round Robin, check if the weights are set correctly
 3. **Connection Refused Errors**: Ensure the backend servers are accepting connections on the specified ports
 4. **All Backends Unhealthy**: Check if at least one backend is operational
+5. **Session Persistence Issues**: Verify the client supports the chosen persistence method
 
 ### Logs
 
@@ -172,5 +227,26 @@ The load balancer logs important events, including:
 - Backend server failures
 - Backends marked as unhealthy
 - Backend recovery events
+- Session persistence decisions
 
-To view these logs, check the standard output of the load balancer process. 
+To view these logs, check the standard output of the load balancer process.
+
+package balancer
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+)
+
+type Config struct {
+	Backends    []BackendConfig
+	Method      LoadBalancerAlgorithm
+	Persistence PersistenceMethod
+}
+
+type BackendConfig struct {
+	URL    string
+	Weight int
+} 
