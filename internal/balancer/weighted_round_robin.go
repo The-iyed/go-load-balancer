@@ -11,6 +11,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// Ensure logger is initialized
+func init() {
+	if logger.Log == nil {
+		logger.InitLogger()
+	}
+}
+
 type WeightedRoundRobinBalancer struct {
 	ProcessPack []*Process
 	Current     uint64
