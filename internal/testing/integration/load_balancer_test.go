@@ -1,13 +1,16 @@
 package integration
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -24,11 +27,11 @@ func TestLoadBalancerWithRealBinary(t *testing.T) {
 	defer cluster.Close()
 
 	config := fmt.Sprintf(`upstream backend {
-    method weighted_round_robin;
-    persistence cookie;
-    server %s weight=3;
-    server %s weight=2;
-    server %s weight=1;
+    method weighted_round_robin
+    persistence cookie
+    server %s weight=3
+    server %s weight=2
+    server %s weight=1
 }`, cluster.Backends[0].URL(), cluster.Backends[1].URL(), cluster.Backends[2].URL())
 
 	configFile, err := testutils.CreateTempConfig(config)
@@ -50,16 +53,26 @@ func TestLoadBalancerWithRealBinary(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binaryPath, "--config", configFile)
-	cmd.Env = append(os.Environ(), "PORT=0") // Let the OS assign a port
+	// Use a custom port that's likely to be available
+	tempPort := 8090 + rand.Intn(1000) // Use a random high port
+	portStr := strconv.Itoa(tempPort)
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Use a dynamic port for testing
+	cmd := exec.CommandContext(ctx, binaryPath, "--config", configFile, "--port", portStr)
+
+	// Set up a combined output pipe
+	outputPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("Failed to create stdout pipe: %v", err)
+	}
+
+	cmd.Stderr = cmd.Stdout // Send stderr to the same pipe
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start load balancer: %v", err)
 	}
 
+	// Wait a bit for the server to start
 	time.Sleep(2 * time.Second)
 
 	client := &http.Client{
@@ -67,7 +80,15 @@ func TestLoadBalancerWithRealBinary(t *testing.T) {
 	}
 
 	const numRequests = 100
-	lbURL := "http://localhost:8080"
+	lbURL := fmt.Sprintf("http://localhost:%d", tempPort)
+
+	// Print log output in the background
+	go func() {
+		scanner := bufio.NewScanner(outputPipe)
+		for scanner.Scan() {
+			fmt.Println("LB:", scanner.Text())
+		}
+	}()
 
 	var sessionCookie *http.Cookie
 
@@ -141,11 +162,11 @@ func TestLoadBalancerFailover(t *testing.T) {
 	defer cluster.Close()
 
 	config := fmt.Sprintf(`upstream backend {
-    method weighted_round_robin;
-    persistence cookie;
-    server %s weight=1;
-    server %s weight=1;
-    server %s weight=1;
+    method weighted_round_robin
+    persistence cookie
+    server %s weight=1
+    server %s weight=1
+    server %s weight=1
 }`, cluster.Backends[0].URL(), cluster.Backends[1].URL(), cluster.Backends[2].URL())
 
 	configFile, err := testutils.CreateTempConfig(config)
@@ -167,21 +188,43 @@ func TestLoadBalancerFailover(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, binaryPath, "--config", configFile)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Use a custom port that's likely to be available
+	tempPort := 8090 + rand.Intn(1000) // Use a random high port
+	portStr := strconv.Itoa(tempPort)
+
+	// Use a dynamic port for testing
+	cmd := exec.CommandContext(ctx, binaryPath, "--config", configFile, "--port", portStr)
+
+	// Set up a combined output pipe
+	outputPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("Failed to create stdout pipe: %v", err)
+	}
+
+	cmd.Stderr = cmd.Stdout // Send stderr to the same pipe
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start load balancer: %v", err)
 	}
 
+	// Wait a bit for the server to start
 	time.Sleep(2 * time.Second)
 
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
 
-	lbURL := "http://localhost:8080"
+	// Use the port we specified
+	lbURL := fmt.Sprintf("http://localhost:%d", tempPort)
+
+	// Print log output in the background
+	go func() {
+		scanner := bufio.NewScanner(outputPipe)
+		for scanner.Scan() {
+			fmt.Println("LB:", scanner.Text())
+		}
+	}()
+
 	req, err := http.NewRequest("GET", lbURL, nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)

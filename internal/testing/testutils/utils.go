@@ -89,7 +89,7 @@ func CreateLoadBalancerConfig(algorithm balancer.LoadBalancerAlgorithm,
 	default:
 		methodStr = "weighted_round_robin"
 	}
-	sb.WriteString(fmt.Sprintf("    method %s;\n", methodStr))
+	sb.WriteString(fmt.Sprintf("    method %s\n", methodStr))
 
 	// Convert persistence enum to string
 	var persistenceStr string
@@ -105,14 +105,14 @@ func CreateLoadBalancerConfig(algorithm balancer.LoadBalancerAlgorithm,
 	default:
 		persistenceStr = "none"
 	}
-	sb.WriteString(fmt.Sprintf("    persistence %s;\n", persistenceStr))
+	sb.WriteString(fmt.Sprintf("    persistence %s\n", persistenceStr))
 
 	for i, backend := range backends {
 		weight := 1
 		if weights != nil {
 			weight = weights[i]
 		}
-		sb.WriteString(fmt.Sprintf("    server %s weight=%d;\n", backend, weight))
+		sb.WriteString(fmt.Sprintf("    server %s weight=%d\n", backend, weight))
 	}
 
 	sb.WriteString("}\n")
