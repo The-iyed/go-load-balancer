@@ -7,120 +7,44 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/The-iyed/go-load-balancer)](https://goreportcard.com/report/github.com/The-iyed/go-load-balancer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A high-performance HTTP load balancer written in Go with support for multiple load balancing algorithms and Docker integration.
-
+A high-performance HTTP load balancer written in Go with support for multiple load balancing algorithms, session persistence methods, and path-based routing capabilities.
 
 ## Features
 
 - **Multiple Load Balancing Algorithms**
-  - Weighted Round Robin
-  - Least Connections
+  - Round Robin: Distributes requests sequentially across backends
+  - Weighted Round Robin: Distributes requests proportionally to backend weights
+  - Least Connections: Routes requests to the backend with fewest active connections
+  
 - **Session Persistence Methods**
-  - Cookie-based persistence
-  - IP hash persistence
-  - Consistent hashing
+  - Cookie-based persistence: Tracks client sessions with HTTP cookies
+  - IP hash persistence: Maps client IPs to specific backends
+  - Consistent hashing: Provides stable request distribution
+
+- **Path-Based Routing**
+  - Route requests to different backend pools based on URL path patterns
+  - Support for exact matches and regex-based patterns
+  - Configure different algorithms and persistence methods per route
+
+- **WebSocket Support**
+  - Seamless WebSocket connection proxying
+  - Maintains long-lived connections
+  - Automatic failover for failed backend servers
+
 - **Health Checking**
   - Automatic detection of failed backends
   - Self-healing with automatic recovery
+  - Configurable health check intervals
+
+- **Monitoring API**
+  - JSON API for runtime statistics
+  - Health status endpoints
+  - Per-backend metrics
+
 - **Production Ready**
   - Docker and Docker Compose support
   - Customizable via command-line flags
-- **Real-time Metrics**
-  - Track active connections and server status
-
-## Quick Start
-
-### Using Docker Compose
-
-The easiest way to try the load balancer is with Docker Compose:
-
-```bash
-git clone https://github.com/your-username/go-load-balancer.git
-cd go-load-balancer
-docker-compose up
-```
-
-This starts:
-- The load balancer on port 8080
-- Three backend web servers with different weights
-
-### Building From Source
-
-```bash
-git clone https://github.com/your-username/go-load-balancer.git
-cd go-load-balancer
-go build -o load-balancer ./cmd/server
-./load-balancer --config=conf/loadbalancer.conf
-```
-
-## Command-Line Options
-
-```
-Usage of ./load-balancer:
-  -algorithm string
-        override load balancing algorithm: round-robin, weighted-round-robin, least-connections
-  -config string
-        accessing configuration file (default "conf/loadbalancer.conf")
-  -persistence string
-        override session persistence method: none, cookie, ip_hash, consistent_hash
-```
-
-## Configuration File Format
-
-```
-upstream backend {
-    method weighted_round_robin;
-    persistence cookie;
-    server http://backend1:80 weight=3;
-    server http://backend2:80 weight=2;
-    server http://backend3:80 weight=1;
-}
-```
-
-See [Configuration Guide](docs/configuration.md) for more details.
-
-## Supported Algorithms
-
-### Weighted Round Robin
-
-Distributes requests to backend servers proportionally to their weights.
-
-### Least Connections
-
-Routes each request to the backend server with the fewest active connections, using weights to break ties.
-
-## Supported Persistence Methods
-
-### None (Default)
-
-No session persistence is applied. Each request is treated independently according to the selected load balancing algorithm.
-
-### Cookie
-
-Cookie-based persistence tracks which backend server each client should use via HTTP cookies:
-
-1. When a client makes their first request, the load balancer selects a backend using the configured algorithm
-2. The load balancer sets a cookie (GOLB_SESSION) containing an encoded reference to the selected backend
-3. On subsequent requests, the client sends this cookie and the load balancer routes to the same backend
-4. If the original backend is down, the load balancer selects a new one and updates the cookie
-
-### IP Hash
-
-IP-based persistence uses the client's IP address to determine which backend to use:
-
-1. The load balancer extracts the client's IP address from the request
-2. The IP is hashed to consistently map to the same backend server
-3. All requests from the same IP are sent to the same backend
-4. This method works even when cookies are not supported
-
-### Consistent Hash
-
-Consistent hashing uses the request path to distribute requests:
-
-1. Each backend server is assigned multiple points on a hash ring
-2. The request path is hashed to determine its position on the ring
-3. The request is routed to the nearest backend server on the ring
-4. When servers are added or removed, only a fraction of requests are redistributed
+  - Graceful shutdown handling
 
 ## Architecture
 
@@ -132,6 +56,83 @@ The load balancer consists of the following core components:
 4. **Session Persistence**: Maintains client sessions with the same backend
 5. **Health Checker**: Periodically checks backends and removes unhealthy ones
 6. **Configuration Parser**: Reads and validates the config file
+7. **Monitoring API**: Provides runtime statistics
+
+## Quick Start
+
+### Using Docker Compose
+
+The easiest way to try the load balancer is with Docker Compose:
+
+```bash
+git clone https://github.com/The-iyed/go-load-balancer.git
+cd go-load-balancer
+docker-compose up -d
+```
+
+This starts:
+- The load balancer on port 8080 for traffic and 8081 for the admin API
+- Three backend web servers with different weights
+
+### Building From Source
+
+```bash
+git clone https://github.com/The-iyed/go-load-balancer.git
+cd go-load-balancer
+go build -o loadbalancer cmd/server/main.go
+./loadbalancer --config=conf/loadbalancer.conf
+```
+
+## Command-Line Options
+
+```
+Usage of ./loadbalancer:
+  --algorithm string
+        Override load balancing algorithm: round-robin, weighted-round-robin, least-connections
+  --config string
+        Path to configuration file (default "conf/loadbalancer.conf")
+  --persistence string
+        Override session persistence method: none, cookie, ip_hash, consistent_hash
+  --path-routing
+        Enable path-based routing
+  --port int
+        Port to listen on (default 8080)
+  --admin-port int
+        Port for admin API server (default 8081)
+```
+
+## Configuration File Format
+
+### Basic Configuration
+
+```
+method weighted_round_robin
+persistence cookie
+
+backend http://localhost:8001 weight=5
+backend http://localhost:8002 weight=3
+backend http://localhost:8003 weight=1
+```
+
+### Path-Based Routing Configuration
+
+```
+route /api/* backend_pool=api_servers
+route /auth/* backend_pool=auth_servers
+route /static/* backend_pool=static_servers
+
+pool api_servers method=least_connections
+backend http://api1:8080 pool=api_servers
+backend http://api2:8080 pool=api_servers
+
+pool auth_servers method=ip_hash persistence=cookie
+backend http://auth1:8080 pool=auth_servers
+backend http://auth2:8080 pool=auth_servers
+
+pool static_servers method=weighted_round_robin
+backend http://static1:8080 weight=3 pool=static_servers
+backend http://static2:8080 weight=1 pool=static_servers
+```
 
 ## How Session Persistence Works
 
@@ -166,7 +167,7 @@ This method uses the client's IP address to determine backend server assignment:
 ```
 +---------+  1. Request from   +---------------+
 | Client  |-------------------->| Load Balancer |
-| IP: x.x.x.x              +---------------+
+| IP: x.x.x.x                  +---------------+
 +---------+                    |
                               | 2. Hash IP: hash(x.x.x.x) % backends
                               v
@@ -200,6 +201,52 @@ Key features:
 - Only a portion of requests are reassigned when servers change
 - Provides good distribution while maintaining consistency
 
+## API Endpoints
+
+The admin API is available on the admin port (default 8081):
+
+- `GET /api/health` - Check if the load balancer is healthy
+- `GET /api/stats` - Get current load balancer statistics with detailed backend information
+
+Example `/api/stats` response:
+```json
+{
+  "method": "weighted_round_robin",
+  "persistenceType": "cookie",
+  "totalRequests": 1024,
+  "uptime": "1h24m15s",
+  "backends": [
+    {
+      "url": "http://backend1:8080",
+      "alive": true,
+      "weight": 5,
+      "requestCount": 512,
+      "errorCount": 2,
+      "loadPercentage": 50.0,
+      "responseTimeAvg": 15
+    },
+    {
+      "url": "http://backend2:8080",
+      "alive": true,
+      "weight": 3,
+      "requestCount": 307,
+      "errorCount": 0,
+      "loadPercentage": 30.0,
+      "responseTimeAvg": 12
+    },
+    {
+      "url": "http://backend3:8080",
+      "alive": true,
+      "weight": 1,
+      "requestCount": 205,
+      "errorCount": 1,
+      "loadPercentage": 20.0,
+      "responseTimeAvg": 10
+    }
+  ]
+}
+```
+
 ## Performance
 
 Benchmarks show the load balancer can handle:
@@ -208,16 +255,30 @@ Benchmarks show the load balancer can handle:
 - Low latency overhead (typically < 1ms)
 - Graceful handling of backend server failures
 
-## Documentation
+## Development
 
-For detailed documentation, please see the following resources:
+### Prerequisites
 
-- [User Guide](docs/README.md)
-- [Load Balancing Algorithms](docs/algorithms.md)
-- [Configuration Guide](docs/configuration.md)
-- [Example Configurations](docs/examples)
+- Go 1.21+
+- Docker (optional, for containerized development)
 
-## Project Structure
+### Building from Source
+
+```bash
+go build -o loadbalancer cmd/server/main.go
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+go test ./...
+
+# Run specific tests
+go test ./internal/balancer
+```
+
+### Project Structure
 
 ```
 go-load-balancer/
@@ -228,28 +289,9 @@ go-load-balancer/
 │   ├── balancer/         # Load balancing implementation
 │   └── logger/           # Logging utilities
 ├── docs/                 # Documentation
-├── backends/             # Example backend servers
+├── examples/             # Example backend servers
 ├── Dockerfile            # Container definition
 └── docker-compose.yml    # Multi-container setup
-```
-
-## Development
-
-### Prerequisites
-
-- Go 1.16+
-- Docker (optional, for containerized development)
-
-### Building from Source
-
-```bash
-go build -o load-balancer ./cmd/server/main.go
-```
-
-### Running Tests
-
-```bash
-go test ./...
 ```
 
 ## Contributing
