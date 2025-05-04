@@ -22,12 +22,14 @@ func main() {
 	var persistence string
 	var enablePathRouting bool
 	var port int
+	var adminPort int
 
 	flag.StringVar(&configPath, "config", "conf/loadbalancer.conf", "accessing configuration file")
 	flag.StringVar(&algorithm, "algorithm", "", "override load balancing algorithm: round-robin, weighted-round-robin, least-connections")
 	flag.StringVar(&persistence, "persistence", "", "override persistence method: none, cookie, ip_hash, consistent_hash")
 	flag.BoolVar(&enablePathRouting, "path-routing", false, "enable path-based routing")
 	flag.IntVar(&port, "port", 8080, "port to listen on")
+	flag.IntVar(&adminPort, "admin-port", 8081, "port for admin UI API server")
 	flag.Parse()
 
 	logger.InitLogger()
@@ -119,6 +121,7 @@ func main() {
 		logger.Log.Info("Load balancer listening", zap.Int("port", actualPort))
 	}
 
+	// Start the main proxy server
 	go func() {
 		logger.Log.Info("Starting load balancer", zap.Int("port", port))
 
@@ -134,6 +137,28 @@ func main() {
 		}
 	}()
 
+	// Create the admin API server for the web UI
+	adminServer := &http.Server{
+		Addr: fmt.Sprintf(":%d", adminPort),
+	}
+
+	// Define API routes
+	adminMux := http.NewServeMux()
+	adminMux.HandleFunc("/api/stats", balancer.APIHandler(lb))
+
+	// Add static file serving for the web UI
+	adminMux.Handle("/", http.FileServer(http.Dir("./web-ui/dist")))
+
+	adminServer.Handler = adminMux
+
+	// Start the admin API server
+	go func() {
+		logger.Log.Info("Starting admin API server", zap.Int("port", adminPort))
+		if err := adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Log.Error("Failed to start admin server", zap.Error(err))
+		}
+	}()
+
 	// If port is 0, find the actual port the server is listening on
 	if port == 0 {
 		// Override the port with the actual port for tests
@@ -144,14 +169,19 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Log.Info("Shutting down server...")
+	logger.Log.Info("Shutting down servers...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Shut down both servers
 	if err := server.Shutdown(ctx); err != nil {
-		logger.Log.Fatal("Server forced to shutdown", zap.Error(err))
+		logger.Log.Fatal("Main server forced to shutdown", zap.Error(err))
 	}
 
-	logger.Log.Info("Server exiting")
+	if err := adminServer.Shutdown(ctx); err != nil {
+		logger.Log.Error("Admin server forced to shutdown", zap.Error(err))
+	}
+
+	logger.Log.Info("Servers exiting")
 }
