@@ -29,7 +29,7 @@ func main() {
 	flag.StringVar(&persistence, "persistence", "", "override persistence method: none, cookie, ip_hash, consistent_hash")
 	flag.BoolVar(&enablePathRouting, "path-routing", false, "enable path-based routing")
 	flag.IntVar(&port, "port", 8080, "port to listen on")
-	flag.IntVar(&adminPort, "admin-port", 8081, "port for admin UI API server")
+	flag.IntVar(&adminPort, "admin-port", 8081, "port for admin API server")
 	flag.Parse()
 
 	logger.InitLogger()
@@ -137,17 +137,21 @@ func main() {
 		}
 	}()
 
-	// Create the admin API server for the web UI
+	// Create the admin API server
 	adminServer := &http.Server{
 		Addr: fmt.Sprintf(":%d", adminPort),
 	}
 
 	// Define API routes
 	adminMux := http.NewServeMux()
-	adminMux.HandleFunc("/api/stats", balancer.APIHandler(lb))
 
-	// Add static file serving for the web UI
-	adminMux.Handle("/", http.FileServer(http.Dir("./web-ui/dist")))
+	// Add API routes
+	adminMux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"healthy"}`))
+	})
+
+	adminMux.HandleFunc("/api/stats", balancer.APIHandler(lb))
 
 	adminServer.Handler = adminMux
 

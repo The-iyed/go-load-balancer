@@ -1,32 +1,44 @@
-FROM golang:1.18-alpine as builder
+# Stage 1: Build the application
+FROM golang:1.21-alpine AS builder
 
+# Set working directory
 WORKDIR /app
 
-# Copy the Go module files
-COPY go.mod go.sum ./
+# Install build dependencies
+RUN apk add --no-cache git
 
-# Download the Go module dependencies
+# Copy go.mod and go.sum files first and download dependencies
+COPY go.mod go.sum* ./
 RUN go mod download
 
 # Copy the source code
 COPY . .
 
-# Build the load balancer
-RUN CGO_ENABLED=0 GOOS=linux go build -o load-balancer ./cmd/server/main.go
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -o loadbalancer cmd/server/main.go
 
-# Final stage
+# Stage 2: Build the final image
 FROM alpine:latest
 
 WORKDIR /app
 
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates tzdata
+
 # Copy the binary from the builder stage
-COPY --from=builder /app/load-balancer .
+COPY --from=builder /app/loadbalancer .
 
-# Create a directory for config
-RUN mkdir -p /app/conf
+# Copy configuration files
+COPY conf/ /app/conf/
 
-# Expose the default port
-EXPOSE 8080
+# Create a non-root user and switch to it
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN chown -R appuser:appgroup /app
+USER appuser
 
-# Run the load balancer with the config file
-CMD ["./load-balancer", "-conf", "/app/conf/loadbalancer.conf"] 
+# Expose ports
+EXPOSE 8080 8081
+
+# Set the entry point
+ENTRYPOINT ["/app/loadbalancer"]
+CMD ["--config", "/app/conf/docker.conf"] 
