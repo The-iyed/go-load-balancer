@@ -22,7 +22,7 @@ import (
 
 type SessionPersistenceBalancer struct {
 	ProcessPack        []*Process
-	BaseLB             LoadBalancerStrategy
+	BaseLB             interface{}
 	PersistenceMethod  PersistenceMethod
 	ConsistentHashRing *ConsistentHashRing
 	CookieName         string
@@ -32,7 +32,7 @@ type SessionPersistenceBalancer struct {
 }
 
 func NewSessionPersistenceBalancer(configs []BackendConfig, algorithm LoadBalancerAlgorithm, persistenceMethod PersistenceMethod) *SessionPersistenceBalancer {
-	var baseLB LoadBalancerStrategy
+	var baseLB interface{}
 
 	switch algorithm {
 	case LeastConnections:
@@ -82,17 +82,35 @@ func NewSessionPersistenceBalancer(configs []BackendConfig, algorithm LoadBalanc
 	}
 }
 
-func (lb *SessionPersistenceBalancer) GetNextInstance(r *http.Request) *Process {
+func (lb *SessionPersistenceBalancer) GetNextInstance(r *http.Request) (*url.URL, error) {
+	var process *Process
+
 	switch lb.PersistenceMethod {
 	case CookiePersistence:
-		return lb.getInstanceByCookie(r)
+		process = lb.getInstanceByCookie(r)
 	case IPHashPersistence:
-		return lb.getInstanceByIPHash(r)
+		process = lb.getInstanceByIPHash(r)
 	case ConsistentHashPersistence:
-		return lb.getInstanceByConsistentHash(r)
+		process = lb.getInstanceByConsistentHash(r)
 	default:
-		return lb.BaseLB.GetNextInstance(r)
+		if adapter, ok := lb.BaseLB.(*LegacyLoadBalancerAdapter); ok {
+			return adapter.GetNextInstance(r)
+		}
+
+		// Get from the underlying implementation directly
+		switch base := lb.BaseLB.(type) {
+		case *WeightedRoundRobinBalancer:
+			process = base.GetNextInstance(r)
+		case *LeastConnectionsBalancer:
+			process = base.GetNextInstance(r)
+		}
 	}
+
+	if process == nil {
+		return nil, fmt.Errorf("no available backends")
+	}
+
+	return process.URL, nil
 }
 
 func (lb *SessionPersistenceBalancer) getInstanceByCookie(r *http.Request) *Process {
@@ -111,13 +129,29 @@ func (lb *SessionPersistenceBalancer) getInstanceByCookie(r *http.Request) *Proc
 		}
 	}
 
-	return lb.BaseLB.GetNextInstance(r)
+	// Get from the underlying implementation
+	var process *Process
+	switch base := lb.BaseLB.(type) {
+	case *WeightedRoundRobinBalancer:
+		process = base.GetNextInstance(r)
+	case *LeastConnectionsBalancer:
+		process = base.GetNextInstance(r)
+	}
+	return process
 }
 
 func (lb *SessionPersistenceBalancer) getInstanceByIPHash(r *http.Request) *Process {
 	ip := getClientIP(r)
 	if ip == "" {
-		return lb.BaseLB.GetNextInstance(r)
+		// Get from the underlying implementation
+		var process *Process
+		switch base := lb.BaseLB.(type) {
+		case *WeightedRoundRobinBalancer:
+			process = base.GetNextInstance(r)
+		case *LeastConnectionsBalancer:
+			process = base.GetNextInstance(r)
+		}
+		return process
 	}
 
 	if target, ok := lb.IPToBackendMap.Load(ip); ok {
@@ -127,7 +161,15 @@ func (lb *SessionPersistenceBalancer) getInstanceByIPHash(r *http.Request) *Proc
 		}
 	}
 
-	target := lb.BaseLB.GetNextInstance(r)
+	// Get from the underlying implementation
+	var target *Process
+	switch base := lb.BaseLB.(type) {
+	case *WeightedRoundRobinBalancer:
+		target = base.GetNextInstance(r)
+	case *LeastConnectionsBalancer:
+		target = base.GetNextInstance(r)
+	}
+
 	if target != nil {
 		lb.IPToBackendMap.Store(ip, lb.BackendToIndexMap[target.URL.String()])
 	}
@@ -139,21 +181,42 @@ func (lb *SessionPersistenceBalancer) getInstanceByConsistentHash(r *http.Reques
 	key := r.URL.Path
 
 	if key == "" {
-		return lb.BaseLB.GetNextInstance(r)
+		// Get from the underlying implementation
+		var process *Process
+		switch base := lb.BaseLB.(type) {
+		case *WeightedRoundRobinBalancer:
+			process = base.GetNextInstance(r)
+		case *LeastConnectionsBalancer:
+			process = base.GetNextInstance(r)
+		}
+		return process
 	}
 
 	return lb.ConsistentHashRing.GetNode(key)
 }
 
 func (lb *SessionPersistenceBalancer) ProxyRequest(w http.ResponseWriter, r *http.Request) {
-	target := lb.GetNextInstance(r)
-	if target == nil {
+	target, err := lb.GetNextInstance(r)
+	if err != nil || target == nil {
 		http.Error(w, "No healthy backends available", http.StatusServiceUnavailable)
 		return
 	}
 
+	var process *Process
+	for _, p := range lb.ProcessPack {
+		if p.URL.String() == target.String() {
+			process = p
+			break
+		}
+	}
+
+	if process == nil {
+		http.Error(w, "Backend not found", http.StatusInternalServerError)
+		return
+	}
+
 	if IsWebSocketRequest(r) && lb.SupportsWebSockets() {
-		wsProxy := NewWebSocketProxy(target, func(p *Process) {
+		wsProxy := NewWebSocketProxy(process, func(p *Process) {
 			go lb.reviveLater(p)
 		})
 		wsProxy.ProxyWebSocket(w, r)
@@ -163,14 +226,14 @@ func (lb *SessionPersistenceBalancer) ProxyRequest(w http.ResponseWriter, r *htt
 	if lb.PersistenceMethod == CookiePersistence {
 		index := -1
 		for i, backend := range lb.ProcessPack {
-			if backend.URL.String() == target.URL.String() {
+			if backend.URL.String() == target.String() {
 				index = i
 				break
 			}
 		}
 
 		if index >= 0 {
-			hash := md5.Sum([]byte(target.URL.String()))
+			hash := md5.Sum([]byte(target.String()))
 			cookie := &http.Cookie{
 				Name:     lb.CookieName,
 				Value:    fmt.Sprintf("%d:%s", index, hex.EncodeToString(hash[:])),
@@ -183,18 +246,20 @@ func (lb *SessionPersistenceBalancer) ProxyRequest(w http.ResponseWriter, r *htt
 		}
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target.URL)
+	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
 		logger.Log.Error("Request failed",
-			zap.String("backend", target.URL.String()),
+			zap.String("backend", target.String()),
 			zap.Error(err),
 		)
 
-		atomic.AddInt32(&target.ErrorCount, 1)
-		if atomic.LoadInt32(&target.ErrorCount) >= 3 {
-			target.SetAlive(false)
-			logger.Log.Warn("Backend marked dead", zap.String("backend", target.URL.String()))
-			go lb.reviveLater(target)
+		if process != nil {
+			atomic.AddInt32(&process.ErrorCount, 1)
+			if atomic.LoadInt32(&process.ErrorCount) >= 3 {
+				process.SetAlive(false)
+				logger.Log.Warn("Backend marked dead", zap.String("backend", target.String()))
+				go lb.reviveLater(process)
+			}
 		}
 
 		lb.ProxyRequest(w, r)

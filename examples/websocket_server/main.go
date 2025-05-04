@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"sync/atomic"
@@ -78,7 +79,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 func statusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write([]byte("WebSocket Server: " + *id + "\n"))
-	w.Write([]byte("Messages Received: " + string(messageCounter) + "\n"))
+	w.Write([]byte("Messages Received: " + fmt.Sprint(messageCounter) + "\n"))
 }
 
 func main() {

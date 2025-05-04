@@ -2,11 +2,11 @@ package testutils
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,43 +15,48 @@ import (
 )
 
 func GetProjectRoot() string {
-	_, filename, _, _ := runtime.Caller(0)
-	dir := filepath.Dir(filename)
-	return filepath.Join(dir, "..", "..", "..")
+	wd, _ := os.Getwd()
+	for {
+		if _, err := os.Stat(filepath.Join(wd, "go.mod")); err == nil {
+			return wd
+		}
+		wd = filepath.Dir(wd)
+	}
 }
 
 func CreateTempConfig(content string) (string, error) {
-	tmpFile, err := os.CreateTemp("", "loadbalancer-test-*.conf")
+	tmpfile, err := ioutil.TempFile("", "loadbalancer.conf")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %v", err)
-	}
-	defer tmpFile.Close()
-
-	if _, err := tmpFile.Write([]byte(content)); err != nil {
-		return "", fmt.Errorf("failed to write to temp file: %v", err)
+		return "", err
 	}
 
-	return tmpFile.Name(), nil
+	if _, err := tmpfile.Write([]byte(content)); err != nil {
+		tmpfile.Close()
+		os.Remove(tmpfile.Name())
+		return "", err
+	}
+	tmpfile.Close()
+
+	return tmpfile.Name(), nil
 }
 
 func CreateTestBackends(count int) ([]string, func(), error) {
-	var backends []string
-	var servers []*httptest.Server
+	backends := make([]string, count)
+	servers := make([]*httptest.Server, count)
+
+	for i := 0; i < count; i++ {
+		id := i + 1
+		servers[i] = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Backend-ID", fmt.Sprintf("%d", id))
+			fmt.Fprintf(w, "Response from backend %d", id)
+		}))
+		backends[i] = servers[i].URL
+	}
 
 	cleanup := func() {
 		for _, server := range servers {
 			server.Close()
 		}
-	}
-
-	for i := 0; i < count; i++ {
-		backendID := i + 1
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("X-Backend-ID", fmt.Sprintf("%d", backendID))
-			fmt.Fprintf(w, "Response from backend %d", backendID)
-		}))
-		backends = append(backends, srv.URL)
-		servers = append(servers, srv)
 	}
 
 	return backends, cleanup, nil
@@ -71,8 +76,36 @@ func CreateLoadBalancerConfig(algorithm balancer.LoadBalancerAlgorithm,
 	var sb strings.Builder
 
 	sb.WriteString("upstream backend {\n")
-	sb.WriteString(fmt.Sprintf("    method %s;\n", algorithm))
-	sb.WriteString(fmt.Sprintf("    persistence %s;\n", persistence))
+
+	// Convert algorithm enum to string
+	var methodStr string
+	switch algorithm {
+	case balancer.RoundRobin:
+		methodStr = "round_robin"
+	case balancer.WeightedRoundRobin:
+		methodStr = "weighted_round_robin"
+	case balancer.LeastConnections:
+		methodStr = "least_connections"
+	default:
+		methodStr = "weighted_round_robin"
+	}
+	sb.WriteString(fmt.Sprintf("    method %s;\n", methodStr))
+
+	// Convert persistence enum to string
+	var persistenceStr string
+	switch persistence {
+	case balancer.NoPersistence:
+		persistenceStr = "none"
+	case balancer.CookiePersistence:
+		persistenceStr = "cookie"
+	case balancer.IPHashPersistence:
+		persistenceStr = "ip_hash"
+	case balancer.ConsistentHashPersistence:
+		persistenceStr = "consistent_hash"
+	default:
+		persistenceStr = "none"
+	}
+	sb.WriteString(fmt.Sprintf("    persistence %s;\n", persistenceStr))
 
 	for i, backend := range backends {
 		weight := 1

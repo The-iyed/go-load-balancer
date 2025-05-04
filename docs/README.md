@@ -15,6 +15,10 @@ A high-performance HTTP load balancer implemented in Go with support for multipl
   - Cookie-based persistence
   - IP hash persistence
   - Consistent hashing
+- Path-Based Routing:
+  - Route to backend pools based on URL paths
+  - Regular expression pattern matching
+  - Header-based routing
 - WebSocket support with seamless proxying and connection management
 - Nginx-style configuration syntax with algorithm selection
 - Health checking with automatic backend recovery
@@ -71,6 +75,9 @@ docker-compose up --build
 
 # Overriding the persistence method from config
 ./load-balancer --persistence=cookie
+
+# Explicitly enabling path-based routing
+./load-balancer --path-routing
 ```
 
 ### Available Command-Line Options
@@ -80,6 +87,7 @@ docker-compose up --build
 | `--config` | `conf/loadbalancer.conf` | Path to the configuration file |
 | `--algorithm` | `` | Override the load balancing algorithm defined in config |
 | `--persistence` | `` | Override the session persistence method defined in config |
+| `--path-routing` | `false` | Explicitly enable path-based routing (auto-detected if routes exist) |
 
 ### Supported Algorithms
 
@@ -101,20 +109,37 @@ The load balancer is configured using a simple Nginx-inspired syntax.
 ### Configuration File Format
 
 ```
-upstream backend {
-    method weighted_round_robin;  # Load balancing algorithm
-    persistence cookie;           # Session persistence method
+# Backend definitions
+upstream <pool-name> {
     server <URL> weight=<WEIGHT>;
     server <URL> weight=<WEIGHT>;
     ...
 }
+
+# Load balancing algorithm for all backend pools
+method <algorithm>;
+
+# Session persistence method
+persistence <method>;
+
+# Path-based routing
+route path <path-prefix> <backend-pool>
+route regex <regex-pattern> <backend-pool>
+route header <header-name> <value> <backend-pool>
+
+# Default backend pool
+default_backend <backend-pool>
 ```
 
 Where:
-- `method` specifies the load balancing algorithm to use
-- `persistence` specifies the session persistence method to use
+- `<pool-name>` is the name of the backend pool
 - `<URL>` is the URL of the backend server (e.g., `http://backend1:80`)
 - `<WEIGHT>` is the weight of the server (default: 1)
+- `<algorithm>` is the load balancing algorithm to use
+- `<method>` is the session persistence method to use
+- `<path-prefix>` is the URL path prefix to match for routing
+- `<regex-pattern>` is a regular expression to match the full URL path
+- `<backend-pool>` is the name of a defined upstream pool
 
 ### Available Methods
 
@@ -136,6 +161,7 @@ The load balancer follows a clean architecture with the following components:
 
 - **Balancer Interface**: Defines the common interface for all load balancing algorithms
 - **Backend Processes**: Represents and manages backend servers
+- **Path-Based Router**: Routes requests to backend pools based on paths and patterns
 - **Health Checking**: Monitors backend health and handles failure recovery
 - **Request Proxying**: Proxies client requests to selected backends
 - **Session Persistence**: Maintains client affinity to specific backends
@@ -182,11 +208,12 @@ The Weighted Round Robin algorithm distributes traffic proportionally based on s
 
 ```
 upstream backend {
-    method weighted_round_robin;
     server http://backend1:80 weight=5;
     server http://backend2:80 weight=3;
     server http://backend3:80 weight=2;
 }
+
+method weighted_round_robin;
 ```
 
 #### When to Use
@@ -209,11 +236,12 @@ The Least Connections algorithm routes traffic to the server with the fewest act
 
 ```
 upstream backend {
-    method least_conn;
     server http://backend1:80 weight=1;
     server http://backend2:80 weight=1;
     server http://backend3:80 weight=1;
 }
+
+method least_connections;
 ```
 
 #### When to Use
@@ -239,80 +267,115 @@ Session persistence ensures that requests from the same client are routed to the
 
 ```
 upstream backend {
-    method weighted_round_robin;
-    persistence cookie;
     server http://backend1:80 weight=3;
     server http://backend2:80 weight=2;
     server http://backend3:80 weight=1;
 }
+
+method weighted_round_robin;
+persistence cookie;
 ```
 
 #### When to Use
 
-- For applications that store session state on the server
-- When clients support cookies
-- For standard web applications
+- When the application relies on server-side session state
+- For web applications with user logins or shopping carts
+- When client state should be preserved between requests
 
-### IP Hash Persistence
+## Path-Based Routing
 
-#### How It Works
+Path-based routing allows you to route requests to different backend pools based on URL path, HTTP headers, or regex patterns.
 
-1. The client's IP address is extracted from the request
-2. The IP address is hashed to determine which backend server to use
-3. All requests from the same IP address are routed to the same backend
-4. If the backend becomes unhealthy, a new backend is selected
+### How It Works
 
-#### Configuration Example
+1. The load balancer evaluates each request against defined routing rules
+2. The first matching rule determines the backend pool to use
+3. Each backend pool can use its own set of servers
+4. If no rule matches, the default backend is used
+
+### Configuration Example
 
 ```
-upstream backend {
-    method least_conn;
-    persistence ip_hash;
-    server http://backend1:80 weight=1;
-    server http://backend2:80 weight=1;
-    server http://backend3:80 weight=1;
+# Define multiple backend pools
+upstream api {
+    server http://api1:8000 weight=5;
+    server http://api2:8000 weight=5;
 }
-```
 
-#### When to Use
-
-- When clients don't support cookies
-- For applications accessed by clients behind a shared IP (NAT)
-- For API services
-
-### Consistent Hash Persistence
-
-#### How It Works
-
-1. Uses consistent hashing algorithm based on the request path
-2. Distributes requests evenly across the hash ring
-3. Minimizes redistribution when servers are added or removed
-4. Takes server weights into account by adding more virtual nodes for higher-weight servers
-
-#### Configuration Example
-
-```
-upstream backend {
-    method weighted_round_robin;
-    persistence consistent_hash;
-    server http://backend1:80 weight=3;
-    server http://backend2:80 weight=2;
-    server http://backend3:80 weight=1;
+upstream static {
+    server http://static1:8080 weight=10;
 }
+
+upstream admin {
+    server http://admin:8071;
+}
+
+# Default pool
+upstream backend {
+    server http://default1:8000 weight=1;
+    server http://default2:8000 weight=1;
+}
+
+# Define routing rules
+route path /api/ api
+route path /static/ static
+route path /admin/ admin
+route regex ^/api/v2/.* api
+route header X-Internal true admin
+
+# Set default backend pool
+default_backend backend
+
+# Global settings
+method weighted_round_robin;
+persistence cookie;
 ```
 
-#### When to Use
+### Route Types
 
-- For distributed caching systems
-- When backend servers are frequently added or removed
-- For large-scale deployments
+- **Path Routes**: Match URL path prefixes
+- **Regex Routes**: Match URL paths using regular expressions
+- **Header Routes**: Match HTTP header values
+
+### When to Use
+
+- In microservices architectures
+- For content-type based routing (API vs Web)
+- For multi-tenant applications
+- For A/B testing or gradual rollouts
+- For device-specific routing (mobile vs desktop)
+
+For more detailed documentation on path-based routing, see [Path-Based Routing](path-based-routing.md).
+
+## WebSocket Support
+
+The load balancer includes built-in support for WebSocket connections.
+
+### How It Works
+
+1. WebSocket connections are detected based on the `Upgrade: websocket` header
+2. The connection is proxied to the selected backend with the appropriate headers
+3. The WebSocket connection is maintained until closed by either party
+
+### Configuration
+
+WebSocket support works automatically with all load balancing algorithms and persistence methods. No special configuration is needed beyond standard backend setup.
+
+### When to Use
+
+- For real-time web applications
+- For chat applications
+- For streaming data applications
+- For interactive web applications
+
+For more detailed documentation on WebSocket support, see [WebSockets](websockets.md).
 
 ## Performance Considerations
 
-- The load balancer uses Go's concurrency primitives for high performance
-- Connection tracking uses atomic operations to avoid locks
-- The proxy implementation is based on Go's standard library reverse proxy
-- Session persistence adds minimal overhead to request processing
+- The load balancer is designed to be lightweight and efficient
+- Connection tracking is optimized for minimal overhead
+- Health checking is passive to reduce network traffic
+- Caching of route patterns improves routing performance
 
 ## Docker Support
 
@@ -328,7 +391,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Documentation
 
@@ -339,4 +402,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 * [WebSocket Support](websockets.md)
 * [API Reference](api.md)
 * [Performance Benchmarks](benchmarks.md)
-* [Contributing](contributing.md) 
+* [Contributing](contributing.md)
+* [Path-Based Routing](path-based-routing.md) 

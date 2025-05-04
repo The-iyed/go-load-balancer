@@ -42,7 +42,7 @@ func NewWebSocketProxy(backend *Process, errorHandler func(backend *Process)) *W
 		pingInterval:   30 * time.Second,
 		pongWait:       60 * time.Second,
 		writeWait:      10 * time.Second,
-		maxMessageSize: 1024 * 1024, // 1MB
+		maxMessageSize: 1024 * 1024,
 	}
 }
 
