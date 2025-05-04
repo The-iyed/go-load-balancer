@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,11 +21,13 @@ func main() {
 	var algorithm string
 	var persistence string
 	var enablePathRouting bool
+	var port int
 
 	flag.StringVar(&configPath, "config", "conf/loadbalancer.conf", "accessing configuration file")
 	flag.StringVar(&algorithm, "algorithm", "", "override load balancing algorithm: round-robin, weighted-round-robin, least-connections")
 	flag.StringVar(&persistence, "persistence", "", "override persistence method: none, cookie, ip_hash, consistent_hash")
 	flag.BoolVar(&enablePathRouting, "path-routing", false, "enable path-based routing")
+	flag.IntVar(&port, "port", 8080, "port to listen on")
 	flag.Parse()
 
 	logger.InitLogger()
@@ -99,16 +103,42 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:    ":8080",
+		Addr:    fmt.Sprintf(":%d", port),
 		Handler: http.HandlerFunc(lb.ProxyRequest),
 	}
 
+	// Create a listener first if using dynamic port
+	var listener net.Listener
+	var actualPort int
+	if port == 0 {
+		listener, err = net.Listen("tcp", ":0")
+		if err != nil {
+			logger.Log.Fatal("Failed to create listener", zap.Error(err))
+		}
+		actualPort = listener.Addr().(*net.TCPAddr).Port
+		logger.Log.Info("Load balancer listening", zap.Int("port", actualPort))
+	}
+
 	go func() {
-		logger.Log.Info("Starting load balancer", zap.Int("port", 8080))
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Log.Info("Starting load balancer", zap.Int("port", port))
+
+		var err error
+		if listener != nil {
+			err = server.Serve(listener)
+		} else {
+			err = server.ListenAndServe()
+		}
+
+		if err != nil && err != http.ErrServerClosed {
 			logger.Log.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
+
+	// If port is 0, find the actual port the server is listening on
+	if port == 0 {
+		// Override the port with the actual port for tests
+		port = actualPort
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
